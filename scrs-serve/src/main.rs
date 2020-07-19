@@ -1,14 +1,39 @@
+#![deny(clippy::pedantic)]
+#![allow(clippy::used_underscore_binding)]
+
 use bus_queue::flavors::arc_swap::{bounded, Publisher, Subscriber};
 use bytes::Bytes;
+use derive_more::Deref;
 use futures::{SinkExt, StreamExt};
-use tokio::sync::Mutex;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::sync::Mutex;
 
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::sync::Arc;
+
+#[derive(Debug, Deref)]
+struct Request(http::Request<()>);
+
+impl<'a, 'b: 'a> From<httparse::Request<'a, 'b>> for Request {
+    fn from(parsed: httparse::Request<'a, 'b>) -> Self {
+        let mut req = http::Request::builder()
+            .version(http::Version::HTTP_11)
+            .method(parsed.method.unwrap())
+            .uri(parsed.path.unwrap());
+
+        for header in parsed.headers {
+            req.headers_mut().unwrap().insert(
+                http::header::HeaderName::from_bytes(header.name.as_bytes()).unwrap(),
+                http::HeaderValue::try_from(header.value).unwrap(),
+            );
+        }
+
+        Self(req.body(()).unwrap())
+    }
+}
 
 async fn write_response<W: tokio::io::AsyncWrite + Unpin>(mut writer: W, resp: http::Response<()>) {
     writer
@@ -55,18 +80,7 @@ async fn process(
         let header_buffer = buffer.split().freeze();
         parsed.parse(&header_buffer[..]).unwrap();
 
-        let mut req = http::Request::builder()
-            .version(http::Version::HTTP_11)
-            .method(parsed.method.unwrap())
-            .uri(parsed.path.unwrap());
-        for header in parsed.headers.as_ref() {
-            println!("parsing: {}", header.name);
-            req.headers_mut().unwrap().insert(
-                http::header::HeaderName::from_bytes(header.name.as_bytes()).unwrap(),
-                http::HeaderValue::try_from(header.value).unwrap(),
-            );
-        }
-        req.body(()).unwrap()
+        Request::from(parsed)
     };
 
     let resp = http::Response::builder()
@@ -87,7 +101,7 @@ async fn process(
 
             loop {
                 if let Some(v) = subscriber.next().await {
-                    if let Err(_) = stream.write_all(v.as_ref()).await {
+                    if stream.write_all(v.as_ref()).await.is_err() {
                         break;
                     }
                 }
