@@ -186,10 +186,18 @@ async fn process(
 
                 let mut resp = resp
                     .header("Connection", "Close")
-                    .header("Allow", "PUT, SOURCE")
-                    .body(())
-                    .unwrap();
-                write_response(&mut stream, resp).await;
+                    .header("Allow", "PUT, SOURCE");
+
+                let expect_header = req
+                    .headers()
+                    .get("expect")
+                    .map(http::HeaderValue::as_bytes)
+                    .unwrap_or_default();
+                if expect_header == b"100-continue" {
+                    resp = resp.status(100);
+                }
+
+                write_response(&mut stream, resp.body(()).unwrap()).await;
 
                 loop {
                     if stream.read_buf(&mut buffer).await.unwrap() == 0 {
