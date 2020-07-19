@@ -1,10 +1,12 @@
 #![deny(clippy::pedantic)]
 #![allow(clippy::used_underscore_binding)]
 
+use arc_swap::ArcSwap;
 use bus_queue::flavors::arc_swap::{bounded, Publisher, Subscriber};
 use bytes::Bytes;
 use derive_more::Deref;
 use futures::{SinkExt, StreamExt};
+use serde::Serialize;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -33,6 +35,13 @@ impl<'a, 'b: 'a> From<httparse::Request<'a, 'b>> for Request {
 
         Self(req.body(()).unwrap())
     }
+}
+
+#[derive(Debug, Default, Serialize)]
+struct StreamMetadata {
+    artist: Option<String>,
+    title: Option<String>,
+    album: Option<String>,
 }
 
 async fn write_response<W: tokio::io::AsyncWrite + Unpin>(mut writer: W, resp: http::Response<()>) {
@@ -64,6 +73,7 @@ async fn process(
     mut stream: TcpStream,
     publisher: Arc<Mutex<Publisher<Bytes>>>,
     mut subscriber: Subscriber<Bytes>,
+    metadata: Arc<ArcSwap<StreamMetadata>>,
 ) {
     println!("accepted");
 
@@ -128,6 +138,42 @@ async fn process(
                 panic!("someone's already streaming!");
             }
         }
+        "/metadata" => {
+            let resp = resp
+                .header("Connection", "Close")
+                .header("Content-Type", "application/json")
+                .body(())
+                .unwrap();
+            write_response(&mut stream, resp).await;
+
+            stream
+                .write_all(
+                    serde_json::to_string(metadata.load().as_ref())
+                        .unwrap()
+                        .as_bytes(),
+                )
+                .await
+                .unwrap();
+        }
+        "/admin/metadata" => {
+            let query = url::form_urlencoded::parse(req.uri().query().unwrap().as_bytes());
+
+            let mut meta = StreamMetadata::default();
+
+            for (key, value) in query {
+                match key.as_ref() {
+                    "artist" => meta.artist = Some(value.into_owned()),
+                    "title" => meta.title = Some(value.into_owned()),
+                    "album" => meta.album = Some(value.into_owned()),
+                    _ => {}
+                }
+            }
+
+            metadata.store(Arc::new(meta));
+
+            let resp = resp.body(()).unwrap();
+            write_response(&mut stream, resp).await;
+        }
         _ => panic!("Invalid request: {:?}", req),
     }
 }
@@ -141,6 +187,7 @@ async fn main() {
 async fn listen_forward(port: u16) {
     let (publisher, subscriber) = bounded::<bytes::Bytes>(128);
     let publisher = Arc::new(Mutex::new(publisher));
+    let metadata = Arc::new(ArcSwap::new(Arc::from(StreamMetadata::default())));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
 
@@ -153,7 +200,8 @@ async fn listen_forward(port: u16) {
 
         let publisher = publisher.clone();
         let subscriber = subscriber.clone();
+        let metadata = metadata.clone();
 
-        tokio::spawn(process(stream, publisher, subscriber));
+        tokio::spawn(process(stream, publisher, subscriber, metadata));
     }
 }
