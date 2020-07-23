@@ -14,7 +14,10 @@ use tokio::sync::Mutex;
 
 use std::convert::TryFrom;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 
 #[derive(Debug, Deref)]
 struct Request(http::Request<()>);
@@ -41,6 +44,7 @@ impl From<httparse::Request<'_, '_>> for Request {
 struct MetadataContainer {
     stream: ArcSwap<Option<StreamMetadata>>,
     track: ArcSwap<Option<TrackMetadata>>,
+    listeners: AtomicU64,
 }
 
 impl serde::ser::Serialize for MetadataContainer {
@@ -52,6 +56,7 @@ impl serde::ser::Serialize for MetadataContainer {
         let mut struc = serializer.serialize_struct("", 2)?;
         struc.serialize_field("stream", &**self.stream.load())?;
         struc.serialize_field("track", &**self.track.load())?;
+        struc.serialize_field("listeners", &self.listeners)?;
         struc.end()
     }
 }
@@ -169,6 +174,8 @@ async fn process(
             let resp = resp.header("Content-Type", "audio/mpeg").body(()).unwrap();
             write_response(&mut stream, resp).await;
 
+            metadata.listeners.fetch_add(1, Ordering::Relaxed);
+
             loop {
                 if let Some(v) = subscriber.next().await {
                     if stream.write_all(v.as_ref()).await.is_err() {
@@ -176,6 +183,8 @@ async fn process(
                     }
                 }
             }
+
+            metadata.listeners.fetch_sub(1, Ordering::Relaxed);
         }
         "/stream" => {
             println!("stream req: {:?}", req.headers());
