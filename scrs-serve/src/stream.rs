@@ -11,8 +11,11 @@ pub struct Stream {
     publisher: Mutex<Publisher<Bytes>>,
     subscriber: Subscriber<Bytes>,
     metadata: MetadataContainer,
+    #[allow(dead_code)] // unimplemented
     bitrate: usize,
+    #[allow(dead_code)] // unimplemented
     max_conns: usize,
+    #[allow(dead_code)] // unimplemented
     password: String,
     pub content_type: Mime,
     pub listen_uri: &'static str,

@@ -194,7 +194,7 @@ pub async fn process(
             if let Some(query) = req
                 .uri()
                 .query()
-                .map(|v| v.as_bytes())
+                .map(str::as_bytes)
                 .map(url::form_urlencoded::parse)
             {
                 // todo: auth

@@ -1,0 +1,5 @@
+[workspace]
+members = [
+  "scrs-serve",
+  "scrs-sc-transcode"
+]
