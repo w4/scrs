@@ -47,4 +47,11 @@ spec:
             }
         }
     }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'target/release/scrs-serve', fingerprint: true
+            archiveArtifacts artifacts: 'target/release/scrs-sc-transcode', fingerprint: true
+        }
+    }
 }
