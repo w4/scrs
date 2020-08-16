@@ -2,7 +2,7 @@ use crate::metadata::{StreamMetadata, TrackMetadata};
 
 use derive_more::Deref;
 use futures::{SinkExt, StreamExt};
-
+use slog::{debug, info};
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -24,6 +24,8 @@ pub enum HandlerError {
     IoError(#[from] std::io::Error),
     #[error("source attempted to stream data, but the stream no longer exists: `{0}`")]
     StreamDisconnected(#[from] std::sync::mpsc::SendError<bytes::Bytes>),
+    #[error("endpoint not found: `{} {}`", .0.method(), .0.uri())]
+    EndpointNotFound(http::Request<()>),
 }
 
 #[derive(Debug, Deref)]
@@ -52,20 +54,18 @@ impl TryFrom<httparse::Request<'_, '_>> for Request {
 }
 
 macro_rules! write_response {
-    ($writer:ident, $resp:expr) => {{
+    ($log:ident, $writer:ident, $resp:expr) => {{
         let resp = $resp.body(())?;
 
-        $writer
-            .write_all(
-                format!(
-                    "{:?} {} {}\r\n",
-                    resp.version(),
-                    resp.status().as_str(),
-                    resp.status().canonical_reason().unwrap_or("unknown error")
-                )
-                .as_bytes(),
-            )
-            .await?;
+        let resp_head = format!(
+            "{:?} {} {}\r\n",
+            resp.version(),
+            resp.status().as_str(),
+            resp.status().canonical_reason().unwrap_or("unknown error")
+        );
+        debug!($log, "Response: {}", &resp_head[..resp_head.len() - 2]);
+
+        $writer.write_all(resp_head.as_bytes()).await?;
 
         for (name, value) in resp.headers() {
             $writer.write_all(name.as_str().as_bytes()).await?;
@@ -101,6 +101,7 @@ fn header_bytes_or_empty<'a>(req: &'a Request, header: &str) -> &'a [u8] {
 pub async fn process(
     mut conn: TcpStream,
     stream: Arc<crate::stream::Stream>,
+    log: slog::Logger,
 ) -> Result<(), HandlerError> {
     let mut buffer = bytes::BytesMut::with_capacity(1024);
 
@@ -118,6 +119,8 @@ pub async fn process(
         Request::try_from(parsed)?
     };
 
+    debug!(log, "Request: {} {}", req.method(), req.uri(); "user-agent" => req.headers().get("user-agent").and_then(|v| v.to_str().ok()));
+
     let resp = http::Response::builder()
         .version(http::Version::HTTP_11)
         .header(
@@ -132,9 +135,10 @@ pub async fn process(
         v if v == stream.listen_uri => {
             // TODO: allow the streamer to set content-type
             let resp = resp.header("Content-Type", stream.content_type.as_ref());
-            write_response!(conn, resp);
+            write_response!(log, conn, resp);
 
             let mut handle = stream.listen();
+            debug!(log, "Streaming to new listener"; "mountpoint" => "/");
 
             loop {
                 if let Some(v) = handle.subscriber.next().await {
@@ -143,7 +147,6 @@ pub async fn process(
             }
         }
         "/stream" => {
-            println!("stream req: {:?}", req.headers());
             if let Ok(ref mut handle) = stream.try_broadcast() {
                 let mut resp = resp
                     .header("Connection", "Close")
@@ -152,7 +155,7 @@ pub async fn process(
                 let content_type = header_bytes_or_empty(&req, "content-type");
                 if content_type != stream.content_type.as_ref().as_bytes() {
                     // todo: custom message - unsupported content type
-                    write_response!(conn, resp.status(403));
+                    write_response!(log, conn, resp.status(403));
                     return Ok(());
                 }
 
@@ -161,13 +164,13 @@ pub async fn process(
                     resp = resp.status(100);
                 }
 
-                write_response!(conn, resp);
+                write_response!(log, conn, resp);
+
+                let metadata = StreamMetadata::from(req.headers());
+                info!(log, "Accepted stream request"; "mountpoint" => "/", "user-agent" => &metadata.user_agent, "content-type" => &metadata.content_type, "name" => &metadata.name);
 
                 // todo: only stream handles should have write access to the metadata
-                stream
-                    .metadata()
-                    .stream
-                    .store(Arc::new(Some(StreamMetadata::from(req.headers()))));
+                stream.metadata().stream.store(Arc::new(Some(metadata)));
 
                 loop {
                     if conn.read_buf(&mut buffer).await? == 0 {
@@ -187,7 +190,7 @@ pub async fn process(
             let resp = resp
                 .header("Connection", "Close")
                 .header("Content-Type", "application/json");
-            write_response!(conn, resp);
+            write_response!(log, conn, resp);
             write_json!(conn, stream.metadata());
         }
         "/admin/metadata" => {
@@ -197,16 +200,25 @@ pub async fn process(
                 .map(str::as_bytes)
                 .map(url::form_urlencoded::parse)
             {
+                let metadata = TrackMetadata::from(query);
+
+                debug!(log, "Updated stream metadata"; "mountpoint" => "/", "track" => metadata.title, "artist" => metadata.artist, "album" => metadata.album);
+
                 // todo: auth
                 stream
                     .metadata()
                     .track
                     .store(Arc::new(Some(TrackMetadata::from(query))));
 
-                write_response!(conn, resp);
+                write_response!(log, conn, resp);
             }
         }
-        _ => panic!("Invalid request: {:?}", req),
+        _ => {
+            let resp = resp.header("Connection", "Close").status(404);
+            write_response!(log, conn, resp);
+
+            return Err(HandlerError::EndpointNotFound(req.0));
+        }
     }
 
     Ok(())

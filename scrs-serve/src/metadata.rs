@@ -25,9 +25,9 @@ impl serde::ser::Serialize for MetadataContainer {
 
 #[derive(Debug, Default, Serialize)]
 pub struct StreamMetadata {
-    user_agent: String,
-    content_type: String,
-    name: String,
+    pub user_agent: String,
+    pub content_type: String,
+    pub name: String,
 }
 
 impl From<&http::HeaderMap> for StreamMetadata {
@@ -49,9 +49,9 @@ impl From<&http::HeaderMap> for StreamMetadata {
 
 #[derive(Debug, Default, Serialize)]
 pub struct TrackMetadata {
-    artist: Option<String>,
-    title: Option<String>,
-    album: Option<String>,
+    pub artist: Option<String>,
+    pub title: Option<String>,
+    pub album: Option<String>,
 }
 
 impl From<url::form_urlencoded::Parse<'_>> for TrackMetadata {

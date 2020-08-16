@@ -8,7 +8,7 @@ mod metadata;
 mod stream;
 
 use clap::Clap;
-use log::{debug, error, info};
+use slog::{crit, debug, error, info, o, Drain};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
@@ -29,7 +29,10 @@ struct Opts {
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    let decorator = slog_term::TermDecorator::new().build();
+    let drain = slog_term::CompactFormat::new(decorator).build().fuse();
+    let drain = slog_async::Async::new(drain).build().fuse();
+    let log = slog::Logger::root(drain, o!());
 
     let opts: Opts = Opts::parse();
 
@@ -39,15 +42,15 @@ async fn main() {
     {
         Ok(v) => v,
         Err(e) => {
-            error!("{}", e);
+            crit!(log, "{}", e);
             return;
         }
     };
 
-    listen_forward(cfg).await;
+    listen_forward(cfg, log).await;
 }
 
-async fn listen_forward(config: config::Config) {
+async fn listen_forward(config: config::Config, log: slog::Logger) {
     let stream = Arc::new(stream::Stream::from(config.stream));
 
     let mut listener = TcpListener::bind(config.server.listen_address)
@@ -55,19 +58,20 @@ async fn listen_forward(config: config::Config) {
         .unwrap();
 
     info!(
-        "Listening for new connections on {}",
-        config.server.listen_address
+        log,
+        "Listening for new connections on {}", config.server.listen_address
     );
 
     loop {
         let (conn, remote) = listener.accept().await.unwrap();
-        debug!("Accepted connection from {}", remote);
+        let log = log.new(o!("remote" => remote));
+        debug!(log, "Accepted connection from {}", remote);
 
         let stream = stream.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = handler::process(conn, stream).await {
-                error!("Error handling request from {}: {}", remote, e);
+            if let Err(e) = handler::process(conn, stream, log.clone()).await {
+                error!(log, "Error handling request: {}", e);
             }
         });
     }
