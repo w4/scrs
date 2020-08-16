@@ -59,19 +59,28 @@ async fn listen_forward(config: config::Config, log: slog::Logger) {
 
     info!(
         log,
+        concat!(
+            clap::crate_name!(),
+            "/",
+            clap::crate_version!(),
+            " starting up..."
+        )
+    );
+    info!(
+        log,
         "Listening for new connections on {}", config.server.listen_address
     );
 
     loop {
         let (conn, remote) = listener.accept().await.unwrap();
         let log = log.new(o!("remote" => remote));
-        debug!(log, "Accepted connection from {}", remote);
+        debug!(log, "Accepted new connection");
 
         let stream = stream.clone();
 
         tokio::spawn(async move {
             if let Err(e) = handler::process(conn, stream, log.clone()).await {
-                error!(log, "Error handling request: {}", e);
+                error!(log, "{}", e);
             }
         });
     }

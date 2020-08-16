@@ -11,9 +11,9 @@ bus_queue = { git = "https://github.com/filipdulic/bus-queue.git", rev = "48796e
 futures = "0.3"
 tokio = { version = "0.2", features = ["full"] }
 http = "0.2"
-slog = ""
-slog-async = ""
-slog-term = ""
+slog = "2.5"
+slog-async = "2.5"
+slog-term = "2.6"
 thiserror = "1.0"
 bytes = "0.5"
 httparse = "1.3"

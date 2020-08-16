@@ -12,21 +12,21 @@ use std::sync::Arc;
 
 #[derive(Error, Debug)]
 pub enum HandlerError {
-    #[error("failed to parse request from client: `{0}`")]
+    #[error("Failed to parse request from client: `{0}`")]
     RequestError(#[from] httparse::Error),
-    #[error("failed to create response for client: `{0}`")]
+    #[error("Failed to create response for client: `{0}`")]
     ResponseError(#[from] http::Error),
-    #[error("other side didn't send valid a valid http request")]
+    #[error("Other side didn't send valid a valid http request")]
     InvalidHttp,
-    #[error("failed to create JSON blob response for client: `{0}`")]
+    #[error("Failed to create JSON blob response for client: `{0}`")]
     JsonWriteError(serde_json::Error),
-    #[error("i/o failed for client: `{0}`")]
+    #[error("Client i/o failure: `{0}`")]
     IoError(#[from] std::io::Error),
-    #[error("source attempted to stream data, but the stream no longer exists: `{0}`")]
+    #[error("Source attempted to stream data, but the stream no longer exists: `{0}`")]
     StreamDisconnected(#[from] std::sync::mpsc::SendError<bytes::Bytes>),
-    #[error("source is already connected to the requested mountpoint")]
+    #[error("Source is already connected to the requested mountpoint")]
     StreamAlreadyConnected,
-    #[error("source attempted to stream mime-type {} whereas the stream is defined as {}", .actual, .expected)]
+    #[error("Source attempted to stream mime-type `{}` whereas the stream is defined as `{}`", .actual, .expected)]
     UnsupportedContentType {
         actual: String,
         expected: mime::Mime,
@@ -78,7 +78,7 @@ macro_rules! write_response {
                 $canonical_reason
             }
         );
-        debug!($log, "Response: {}", &resp_head[..resp_head.len() - 2]);
+        debug!($log, "Res: {}", &resp_head[..resp_head.len() - 2]);
 
         $writer.write_all(resp_head.as_bytes()).await?;
 
@@ -135,7 +135,7 @@ pub async fn process(
         Request::try_from(parsed)?
     };
 
-    debug!(log, "Request: {} {} {:?}", req.method(), req.uri(), req.version();
+    debug!(log, "Req: {} {} {:?}", req.method(), req.uri(), req.version();
         "user-agent" => req.headers().get("user-agent").and_then(|v| v.to_str().ok()));
 
     let resp = http::Response::builder()
@@ -155,7 +155,7 @@ pub async fn process(
             write_response!(log, conn, resp);
 
             let mut handle = stream.listen();
-            debug!(log, "Streaming to new listener"; "mountpoint" => "/");
+            debug!(log, "New listener connected"; "mountpoint" => "/");
 
             loop {
                 if let Some(v) = handle.subscriber.next().await {
@@ -187,7 +187,7 @@ pub async fn process(
                 write_response!(log, conn, resp);
 
                 let metadata = StreamMetadata::from(req.headers());
-                info!(log, "Accepted stream request";
+                info!(log, "Source connected to stream";
                     "mountpoint" => "/",
                     "user-agent" => &metadata.user_agent,
                     "content-type" => &metadata.content_type,
