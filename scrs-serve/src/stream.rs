@@ -1,4 +1,4 @@
-use bus_queue::flavors::arc_swap::{bounded, Publisher, Subscriber};
+use bus_queue::flavors::arc_swap::{async_bounded, AsyncPublisher, AsyncSubscriber};
 use bytes::Bytes;
 use mime::Mime;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -8,8 +8,8 @@ use ustr::ustr;
 use crate::metadata::MetadataContainer;
 
 pub struct Stream {
-    publisher: Mutex<Publisher<Bytes>>,
-    subscriber: Subscriber<Bytes>,
+    publisher: Mutex<AsyncPublisher<Bytes>>,
+    subscriber: AsyncSubscriber<Bytes>,
     metadata: MetadataContainer,
     #[allow(dead_code)] // unimplemented
     bitrate: usize,
@@ -23,7 +23,7 @@ pub struct Stream {
 
 impl From<crate::config::StreamConfig> for Stream {
     fn from(config: crate::config::StreamConfig) -> Self {
-        let (publisher, subscriber) = bounded::<Bytes>(config.buffer_size);
+        let (publisher, subscriber) = async_bounded::<Bytes>(config.buffer_size);
 
         let content_type: Mime = config.content_type.parse().unwrap();
 
@@ -63,11 +63,11 @@ impl Stream {
 }
 
 pub struct BroadcastHandle<'a> {
-    pub publisher: tokio::sync::MutexGuard<'a, Publisher<Bytes>>,
+    pub publisher: tokio::sync::MutexGuard<'a, AsyncPublisher<Bytes>>,
 }
 
 pub struct Listener<'a> {
-    pub subscriber: Subscriber<Bytes>,
+    pub subscriber: AsyncSubscriber<Bytes>,
     listener_count: &'a AtomicU64,
 }
 

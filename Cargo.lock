@@ -50,10 +50,10 @@ checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 [[package]]
 name = "bus_queue"
 version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e98e34ec054d0202019aa721ab322ef0bd018216233d0a4043526158123496d"
+source = "git+https://github.com/filipdulic/bus-queue.git?rev=48796ef8b56fb352effa9afb0c4c05b7c795d633#48796ef8b56fb352effa9afb0c4c05b7c795d633"
 dependencies = [
  "arc-swap",
+ "event-listener",
  "futures-core",
  "futures-sink",
 ]
@@ -160,6 +160,12 @@ dependencies = [
  "regex",
  "termcolor",
 ]
+
+[[package]]
+name = "event-listener"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "043d21a617dda31c36aed31a38f4ebb643a6fa55c2963fd9f0cc1c831e5095d7"
 
 [[package]]
 name = "fnv"

@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bus_queue = "0.5"
+bus_queue = { git = "https://github.com/filipdulic/bus-queue.git", rev = "48796ef8b56fb352effa9afb0c4c05b7c795d633" }
 futures = "0.3"
 tokio = { version = "0.2", features = ["full"] }
 http = "0.2"
